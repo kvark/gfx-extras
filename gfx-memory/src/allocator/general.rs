@@ -125,6 +125,10 @@ pub struct GeneralAllocator<B: Backend> {
     chunks: BTreeSet<Size>,
 
     non_coherent_atom_size: Option<AtomSize>,
+
+    total_allocated: u64, //TEMP
+    total_allocated_inner: u64, //TEMP
+    total_freed_inner: u64, //TEMP
 }
 
 //TODO: ensure Send and Sync
@@ -221,6 +225,9 @@ impl<B: Backend> GeneralAllocator<B> {
             sizes: HashMap::default(),
             chunks: BTreeSet::new(),
             non_coherent_atom_size,
+            total_allocated: 0,
+            total_allocated_inner: 0,
+            total_freed_inner: 0,
         }
     }
 
@@ -282,6 +289,7 @@ impl<B: Backend> GeneralAllocator<B> {
         if min_chunk_size > self.max_sub_block_size() {
             // Allocate memory block from the device.
             let chunk = self.alloc_chunk_from_device(device, block_size, clamped_count)?;
+            self.total_allocated_inner += block_size * clamped_count as u64;
             return Ok((chunk, requested_chunk_size));
         }
 
@@ -470,13 +478,14 @@ impl<B: Backend> GeneralAllocator<B> {
                 let size = memory.size();
                 match Arc::try_unwrap(memory) {
                     Ok(mem) => unsafe {
+                        self.total_freed_inner += size;
                         if mem.is_mappable() {
                             device.unmap_memory(mem.raw());
                         }
                         device.free_memory(mem.into_raw());
                     },
                     Err(_) => {
-                        log::error!("Allocated `Chunk` was freed, but memory is still shared and never will be destroyed");
+                        panic!("Allocated `Chunk` was freed, but memory is still shared and never will be destroyed");
                     }
                 }
                 size
@@ -495,10 +504,8 @@ impl<B: Backend> GeneralAllocator<B> {
             .expect("Unable to get size entry from which block was allocated");
         let chunk_index = block.chunk_index;
         let chunk = &mut size_entry.chunks[chunk_index as usize];
-        let block_index = block.block_index;
-        let count = block.count;
 
-        chunk.release_blocks(block_index, count);
+        chunk.release_blocks(block.block_index, block.count);
         if chunk.is_unused(block_size) {
             size_entry.ready_chunks.remove(chunk_index);
             let chunk = size_entry.chunks.remove(chunk_index as usize);
@@ -542,10 +549,12 @@ impl<B: Backend> Allocator<B> for GeneralAllocator<B> {
             self.memory_type.0
         );
 
+        self.total_allocated += map_aligned_size;
         self.alloc_block(device, map_aligned_size, align)
     }
 
     fn free(&mut self, device: &B::Device, block: GeneralBlock<B>) -> Size {
+        self.total_allocated -= block.size();
         self.free_block(device, block)
     }
 }

@@ -102,6 +102,7 @@ pub struct LinearAllocator<B: Backend> {
     non_coherent_atom_size: Option<AtomSize>,
     /// Previously used lines that have been replaced, kept around to use next time a new line is needed.
     unused_lines: Vec<Line<B>>,
+    total_allocated: u64,
 }
 
 /// If freed >= allocated it is safe to free the line.
@@ -129,7 +130,7 @@ impl<B: Backend> Line<B> {
                 freed
             }
             Err(_) => {
-                log::error!("Allocated `Line` was freed, but memory is still shared.");
+                panic!("Allocated `Line` was freed, but memory is still shared.");
                 0
             }
         }
@@ -171,6 +172,7 @@ impl<B: Backend> LinearAllocator<B> {
             lines: VecDeque::new(),
             unused_lines: Vec::new(),
             non_coherent_atom_size,
+            total_allocated: 0,
         }
     }
 
@@ -190,13 +192,14 @@ impl<B: Backend> LinearAllocator<B> {
             self.finished_lines_count += 1;
 
             if free_memory {
+                self.total_allocated -= self.line_size;
                 unsafe {
                     freed += line.free_memory(device);
                 }
             } else if Arc::strong_count(&line.memory) == 1 {
                 self.unused_lines.push(line);
             } else {
-                log::error!("Allocated `Line` was freed, but memory is still shared.");
+                panic!("Allocated `Line` was freed, but memory is still shared.");
             }
         }
         freed
@@ -207,6 +210,7 @@ impl<B: Backend> LinearAllocator<B> {
         let mut freed = self.cleanup(device, true);
 
         for line in self.unused_lines.drain(..) {
+            self.total_allocated -= self.line_size;
             freed += self.line_size;
             unsafe {
                 line.free_memory(device);
@@ -270,6 +274,7 @@ impl<B: Backend> Allocator<B> for LinearAllocator<B> {
             }
             None => {
                 log::trace!("Allocated `Line` of size {}", self.line_size);
+                self.total_allocated += self.line_size;
                 let (memory, ptr) = unsafe {
                     super::allocate_memory_helper(
                         device,
