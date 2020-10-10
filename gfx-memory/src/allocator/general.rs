@@ -89,6 +89,7 @@ pub struct GeneralConfig {
     /// All requests are rounded up to multiple of this value.
     pub block_size_granularity: Size,
 
+    ///
     pub max_chunk_size: Size,
 
     /// Minimum size of device allocation.
@@ -123,7 +124,7 @@ pub struct GeneralAllocator<B: Backend> {
 
     non_coherent_atom_size: Option<AtomSize>,
 
-    total_allocated: u64, //TEMP
+    total_allocated: i64, //TEMP
     total_allocated_inner: u64, //TEMP
     total_freed_inner: u64, //TEMP
 }
@@ -191,19 +192,18 @@ mod bit {
     impl Iterator for BitIterator {
         type Item = u32;
         fn next(&mut self) -> Option<u32> {
-            if self.index >= Self::TOTAL {
-                return None;
-            }
-            if self.index & (BitSet::GROUP_SIZE - 1) == 0 {
-                while (self.groups & (1 << (self.index / BitSet::GROUP_SIZE))) == 0 {
-                    self.index += BitSet::GROUP_SIZE;
-                    if self.index >= Self::TOTAL {
-                        return None;
-                    }
+            loop {
+                if self.index == Self::TOTAL {
+                    return None;
                 }
-            }
-            while (self.mask & (1 << self.index)) == 0 {
-                self.index += 1;
+                if self.index & (BitSet::GROUP_SIZE - 1) == 0 && (self.groups & (1 << (self.index / BitSet::GROUP_SIZE))) == 0 {
+                    self.index += BitSet::GROUP_SIZE;
+                } else {
+                    if self.mask & (1 << self.index) != 0 {
+                        break;
+                    }
+                    self.index += 1;
+                }
             }
             let result = self.index;
             self.index += 1;
@@ -287,7 +287,7 @@ impl<B: Backend> GeneralAllocator<B> {
             "Min device allocation must be power of two"
         );
 
-        let max_chunk_size = (total_heap_size / 8)
+        let max_chunk_size = (total_heap_size / 64)
             .max(config.min_device_allocation)
             .next_power_of_two();
 
@@ -620,6 +620,7 @@ impl<B: Backend> Allocator<B> for GeneralAllocator<B> {
             Some(atom) => crate::align_size(aligned_size, atom),
             None => aligned_size,
         };
+        assert!(map_aligned_size >= size);
 
         log::trace!(
             "Allocate general block: size: {}, align: {}, aligned size: {}, type: {}",
@@ -629,12 +630,12 @@ impl<B: Backend> Allocator<B> for GeneralAllocator<B> {
             self.memory_type.0
         );
 
-        self.total_allocated += map_aligned_size;
+        self.total_allocated += size as i64;
         self.alloc_block(device, map_aligned_size, align)
     }
 
     fn free(&mut self, device: &B::Device, block: GeneralBlock<B>) -> Size {
-        self.total_allocated -= block.size();
+        self.total_allocated -= block.size() as i64;
         self.free_block(device, block)
     }
 }

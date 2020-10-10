@@ -131,7 +131,6 @@ impl<B: Backend> Line<B> {
             }
             Err(_) => {
                 panic!("Allocated `Line` was freed, but memory is still shared.");
-                0
             }
         }
     }
