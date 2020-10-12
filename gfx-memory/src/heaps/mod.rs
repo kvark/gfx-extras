@@ -139,6 +139,11 @@ impl<B: hal::Backend> Heaps<B> {
                 .max_by_key(|&(_, _, fitness)| fitness)
                 .ok_or_else(|| {
                     log::error!("All suitable heaps are exhausted!");
+                    for (i, ty) in self.types.iter().enumerate() {
+                        log::error!("\tType[{}]: heap({}), used({}), properties {:?}",
+                            i, ty.heap_index, ty.effective, ty.properties);
+                        ty.print_oom();
+                    }
                     log::warn!("{}", self.utilization());
                     hal::device::OutOfMemory::Device
                 })?

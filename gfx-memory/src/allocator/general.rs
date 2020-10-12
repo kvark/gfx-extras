@@ -24,11 +24,16 @@ fn max_chunks_per_size() -> usize {
 /// Memory block allocated from `GeneralAllocator`.
 #[derive(Debug)]
 pub struct GeneralBlock<B: Backend> {
-    block_index: u32,
+    /// Chunk index within the `SizeEntry` that this block was allocated from.
     chunk_index: u32,
+    /// Start index of the block within the chunk.
+    block_index: u32,
+    /// Number of blocks within the chunks.
     count: u32,
+    /// Parent chunk memory.
     memory: Arc<Memory<B>>,
     ptr: Option<NonNull<u8>>,
+    /// Byte range within the memory object.
     range: Range<Size>,
 }
 
@@ -94,11 +99,6 @@ pub struct GeneralConfig {
 
     /// Minimum size of device allocation.
     pub min_device_allocation: Size,
-
-    /// Number of most significant bits that are left in the allocated
-    /// sizes that are rounded up. Aggressively rounding up increases
-    /// the chances to re-use the blocks.
-    pub significant_size_bits: u32,
 }
 
 /// No-fragmentation allocator.
@@ -296,7 +296,7 @@ impl<B: Backend> GeneralAllocator<B> {
             "Min device allocation must be power of two"
         );
 
-        let max_chunk_size = (total_heap_size / 64)
+        let max_chunk_size = (total_heap_size / 8)
             .max(config.min_device_allocation)
             .next_power_of_two();
 
@@ -316,7 +316,7 @@ impl<B: Backend> GeneralAllocator<B> {
             block_size_granularity,
             max_chunk_size,
             min_device_allocation: config.min_device_allocation,
-            significant_size_bits: config.significant_size_bits,
+            significant_size_bits: 2,
             sizes: HashMap::default(),
             chunks: BTreeSet::new(),
             non_coherent_atom_size,
@@ -426,8 +426,8 @@ impl<B: Backend> GeneralAllocator<B> {
         Some(GeneralBlock {
             range: block_range,
             memory: Arc::clone(chunk.shared_memory()),
-            block_index,
             chunk_index,
+            block_index,
             count,
             ptr: chunk.mapping_ptr().map(|ptr| unsafe {
                 let offset = (block_start - chunk.range().start) as isize;
@@ -610,6 +610,16 @@ impl<B: Backend> GeneralAllocator<B> {
     /// Free the contents of the allocator.
     pub fn clear(&mut self, _device: &B::Device) -> Size {
         0
+    }
+
+    ///
+    pub fn print_oom(&self) {
+        for (size, entry) in self.sizes.iter() {
+            log::error!("\t\tSize {}, ready {:?}", size, entry.ready_chunks);
+            for chunk in entry.chunks.iter() {
+                log::error!("\t\t\t{:?}", chunk);
+            }
+        }
     }
 }
 

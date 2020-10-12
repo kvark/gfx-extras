@@ -121,4 +121,8 @@ impl<B: hal::Backend> MemoryType<B> {
             heap_index: self.heap_index,
         }
     }
+
+    pub(super) fn print_oom(&self) {
+        self.general.print_oom();
+    }
 }
