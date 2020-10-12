@@ -467,6 +467,7 @@ impl<B: Backend> GeneralAllocator<B> {
             align
         );
         let size_entry = self.sizes.entry(block_size).or_default();
+        size_entry.total_blocks += 1;
 
         for chunk_index in (&size_entry.ready_chunks).iter() {
             if let Some(block) = Self::alloc_from_chunk(
@@ -532,9 +533,8 @@ impl<B: Backend> GeneralAllocator<B> {
             align
         );
         let size_entry = self.sizes.entry(block_size).or_default();
-        size_entry.total_blocks += 1;
 
-        let overhead = (MIN_BLOCKS_PER_CHUNK as Size - 1) / size_entry.total_blocks;
+        let overhead = (MIN_BLOCKS_PER_CHUNK as Size - 1) / (size_entry.total_blocks + 1);
         if overhead >= 1 && block_size >= LARGE_BLOCK_THRESHOLD {
             // this is chosen is such a way that the required `count`
             // is less than `MIN_BLOCKS_PER_CHUNK`.
