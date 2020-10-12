@@ -133,9 +133,9 @@ pub struct GeneralAllocator<B: Backend> {
 
     non_coherent_atom_size: Option<AtomSize>,
 
-    total_allocated: i64, //TEMP
+    total_allocated: i64,       //TEMP
     total_allocated_inner: u64, //TEMP
-    total_freed_inner: u64, //TEMP
+    total_freed_inner: u64,     //TEMP
 }
 
 //TODO: ensure Send and Sync
@@ -205,7 +205,9 @@ mod bit {
                 if self.index == Self::TOTAL {
                     return None;
                 }
-                if self.index & (BitSet::GROUP_SIZE - 1) == 0 && (self.groups & (1 << (self.index / BitSet::GROUP_SIZE))) == 0 {
+                if self.index & (BitSet::GROUP_SIZE - 1) == 0
+                    && (self.groups & (1 << (self.index / BitSet::GROUP_SIZE))) == 0
+                {
                     self.index += BitSet::GROUP_SIZE;
                 } else {
                     if self.mask & (1 << self.index) != 0 {
@@ -328,7 +330,7 @@ impl<B: Backend> GeneralAllocator<B> {
 
     /// Allocate memory chunk from device.
     fn alloc_chunk_from_device(
-        &self,
+        &mut self,
         device: &B::Device,
         block_size: Size,
         count: u32,
@@ -338,6 +340,7 @@ impl<B: Backend> GeneralAllocator<B> {
             count,
             block_size
         );
+        self.total_allocated_inner += block_size * count as u64;
 
         let (memory, ptr) = unsafe {
             super::allocate_memory_helper(
@@ -376,10 +379,9 @@ impl<B: Backend> GeneralAllocator<B> {
         let requested_chunk_size = clamped_count as Size * block_size;
 
         // If smallest possible chunk size is larger then this allocator max allocation
-        if min_chunk_size > self.max_chunk_size {
+        if requested_chunk_size > self.max_chunk_size {
             // Allocate memory block from the device.
             let chunk = self.alloc_chunk_from_device(device, block_size, clamped_count)?;
-            self.total_allocated_inner += block_size * clamped_count as u64;
             return Ok((chunk, requested_chunk_size));
         }
 
@@ -391,6 +393,10 @@ impl<B: Backend> GeneralAllocator<B> {
             Some(&chunk_size) => {
                 // Allocate block for the chunk.
                 self.alloc_from_entry(device, chunk_size, 1, block_size)?
+            }
+            None if requested_chunk_size > self.min_device_allocation => {
+                let chunk = self.alloc_chunk_from_device(device, block_size, clamped_count)?;
+                return Ok((chunk, requested_chunk_size));
             }
             None => {
                 // Allocate a new block for the chunk.

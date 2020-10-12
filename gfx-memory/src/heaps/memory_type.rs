@@ -123,6 +123,13 @@ impl<B: hal::Backend> MemoryType<B> {
     }
 
     pub(super) fn print_oom(&self) {
+        log::error!(
+            "\theap={}, used={}, properties={:?}",
+            self.heap_index,
+            self.effective,
+            self.properties
+        );
+
         self.general.print_oom();
     }
 }
